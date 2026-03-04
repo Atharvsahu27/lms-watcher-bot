@@ -5,6 +5,7 @@ from datetime import datetime
 from playwright.sync_api import sync_playwright
 from twilio.rest import Client
 
+
 LOGIN_URL = "https://lms.vit.ac.in/login/index.php"
 DASHBOARD_URL = "https://lms.vit.ac.in/my/"
 
@@ -57,6 +58,7 @@ def days_remaining(due):
 def check_assignments():
 
     data = load_data()
+
     stored = data["assignments"]
 
     with sync_playwright() as p:
@@ -144,31 +146,24 @@ def check_assignments():
             # DUE DATE
             due_date = None
 
-            date_block = page.locator(".description-inner")
+            try:
 
-            if date_block.count() > 0:
+                due_div = page.locator(".description-inner div:has-text('Due')")
 
-                text = date_block.first.inner_text()
+                if due_div.count() > 0:
 
-                if "Due date" in text:
+                    due_text = due_div.first.inner_text()
 
-                    lines = text.split("\n")
+                    date_str = due_text.replace("Due:", "").strip()
 
-                    for i in range(len(lines)):
+                    due_date = datetime.strptime(
+                        date_str,
+                        "%A, %d %B %Y, %I:%M %p"
+                    )
 
-                        if "Due date" in lines[i]:
+            except Exception as e:
 
-                            if i + 1 < len(lines):
-
-                                date_str = lines[i+1].strip()
-
-                                try:
-                                    due_date = datetime.strptime(
-                                        date_str,
-                                        "%A, %d %B %Y, %I:%M %p"
-                                    )
-                                except:
-                                    pass
+                print("Due date parse error:", e)
 
             days = days_remaining(due_date)
 
@@ -261,7 +256,7 @@ while True:
 
         print("Sleeping 10 minutes")
 
-        time.sleep(600)
+        time.sleep(180)
 
     except Exception as e:
 
