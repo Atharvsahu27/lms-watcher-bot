@@ -1,13 +1,10 @@
-import requests
-from bs4 import BeautifulSoup
-import time
-import json
 import os
-import urllib3
+import json
+import time
 from datetime import datetime
+from playwright.sync_api import sync_playwright
 from twilio.rest import Client
 
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 LOGIN_URL = "https://lms.vit.ac.in/login/index.php"
 DASHBOARD_URL = "https://lms.vit.ac.in/my/"
@@ -28,12 +25,13 @@ def send_whatsapp(msg):
 
     client.messages.create(
         body=msg,
-        from_='whatsapp:+14155238886',
+        from_="whatsapp:+14155238886",
         to=MY_PHONE
     )
 
 
 def load_data():
+
     try:
         with open(DATA_FILE) as f:
             return json.load(f)
@@ -42,37 +40,15 @@ def load_data():
 
 
 def save_data(data):
+
     with open(DATA_FILE, "w") as f:
         json.dump(data, f)
-
-
-def login(session):
-
-    login_page = session.get(LOGIN_URL, verify=False)
-
-    soup = BeautifulSoup(login_page.text, "html.parser")
-
-    token = soup.find("input", {"name": "logintoken"})["value"]
-
-    payload = {
-        "username": USERNAME,
-        "password": PASSWORD,
-        "logintoken": token
-    }
-
-    session.post(LOGIN_URL, data=payload, verify=False)
-
-    dashboard = session.get(DASHBOARD_URL, verify=False)
-
-    print("Dashboard:", dashboard.url)
-
-    return dashboard
 
 
 def parse_due_date(text):
 
     try:
-        return datetime.strptime(text, "%A, %d %B %Y, %I:%M %p")
+        return datetime.strptime(text, "%d %B %Y")
     except:
         return None
 
@@ -85,140 +61,130 @@ def days_remaining(due):
     return (due - datetime.now()).days
 
 
-def get_assignment_details(session, url):
-
-    page = session.get(url, verify=False)
-
-    soup = BeautifulSoup(page.text, "html.parser")
-
-    main = soup.find("div", {"role": "main"})
-
-    if not main:
-        print("Main content not found")
-        return "Course", "Assignment", "", None
-
-    # TITLE
-    title = "Assignment"
-
-    h2 = main.find("h2")
-
-    if h2:
-        title = h2.get_text(strip=True)
-
-    # DESCRIPTION
-    description = ""
-
-    intro = main.find("div", class_="no-overflow")
-
-    if intro:
-        description = intro.get_text(" ", strip=True)
-
-    # COURSE NAME
-    course = "Course"
-
-    breadcrumb = soup.select("ul.breadcrumb li")
-
-    if len(breadcrumb) >= 3:
-        course = breadcrumb[2].get_text(strip=True)
-
-    # DUE DATE
-    due_date = None
-
-    rows = main.find_all("tr")
-
-    for r in rows:
-
-        th = r.find("th")
-        td = r.find("td")
-
-        if th and td and "Due date" in th.text:
-
-            due_text = td.get_text(strip=True)
-
-            try:
-                due_date = datetime.strptime(
-                    due_text, "%A, %d %B %Y, %I:%M %p"
-                )
-            except:
-                due_date = None
-
-    print("Course:", course)
-    print("Title:", title)
-    print("Due:", due_date)
-    print("Description length:", len(description))
-
-    return course, title, description, due_date
-
-def format_message(course, title, desc, due, days, url):
-
-    msg = "📚 NEW ASSIGNMENT\n\n"
-
-    msg += f"Course: {course}\n"
-    msg += f"Title: {title}\n"
-
-    if due:
-        msg += f"Due: {due.strftime('%d %B %Y')}\n"
-
-    if days is not None:
-        msg += f"Days Remaining: {days}\n"
-
-    msg += "\n"
-
-    if desc:
-        msg += "Description:\n"
-        msg += desc[:400] + "\n\n"
-
-    msg += "Open Assignment:\n"
-    msg += url
-
-    return msg
-
-
 def check_assignments():
-
-    session = requests.Session()
-
-    dashboard = login(session)
-
-    soup = BeautifulSoup(dashboard.text, "html.parser")
 
     data = load_data()
 
     stored = data["assignments"]
 
-    links = []
+    with sync_playwright() as p:
 
-    for link in soup.find_all("a", href=True):
+        browser = p.chromium.launch(headless=True)
 
-        if "mod/assign/view.php" in link["href"] and "id=" in link["href"]:
-            links.append(link["href"])
+        page = browser.new_page()
 
-    print("Assignments found:", len(links))
+        print("Opening LMS login")
 
-    for url in links:
+        page.goto(LOGIN_URL)
 
-        assignment_id = url.split("id=")[-1]
+        page.fill('input[name="username"]', USERNAME)
+        page.fill('input[name="password"]', PASSWORD)
 
-        if not any(a["id"] == assignment_id for a in stored):
+        page.click('button[type="submit"]')
 
-            print("Opening assignment page:", url)
+        page.wait_for_load_state("networkidle")
 
-            course, title, desc, due = get_assignment_details(session, url)
+        print("Opening dashboard")
 
-            days = days_remaining(due)
+        page.goto(DASHBOARD_URL)
 
-            msg = format_message(course, title, desc, due, days, url)
+        page.wait_for_load_state("networkidle")
+
+        links = page.locator("a").all()
+
+        assignment_links = []
+
+        for l in links:
+
+            href = l.get_attribute("href")
+
+            if href and "mod/assign/view.php" in href:
+
+                assignment_links.append(href)
+
+        print("Assignments found:", len(assignment_links))
+
+        for url in assignment_links:
+
+            assignment_id = url.split("id=")[-1]
+
+            if any(a["id"] == assignment_id for a in stored):
+                continue
+
+            print("Opening assignment:", url)
+
+            page.goto(url)
+
+            page.wait_for_load_state("networkidle")
+
+            title = "Assignment"
+
+            if page.locator("h2").count() > 0:
+                title = page.locator("h2").first.inner_text()
+
+            description = ""
+
+            if page.locator(".no-overflow").count() > 0:
+                description = page.locator(".no-overflow").first.inner_text()
+
+            course = "Course"
+
+            if page.locator(".breadcrumb li").count() >= 3:
+                course = page.locator(".breadcrumb li").nth(2).inner_text()
+
+            due_date = None
+
+            rows = page.locator("tr")
+
+            for i in range(rows.count()):
+
+                text = rows.nth(i).inner_text()
+
+                if "Due date" in text:
+
+                    parts = text.split("\n")
+
+                    if len(parts) > 1:
+
+                        try:
+                            due_date = datetime.strptime(parts[1], "%A, %d %B %Y, %I:%M %p")
+                        except:
+                            pass
+
+            days = days_remaining(due_date)
+
+            msg = "📚 NEW ASSIGNMENT\n\n"
+
+            msg += f"Course: {course}\n"
+            msg += f"Title: {title}\n"
+
+            if due_date:
+                msg += f"Due: {due_date.strftime('%d %B %Y')}\n"
+
+            if days is not None:
+                msg += f"Days Remaining: {days}\n"
+
+            msg += "\n"
+
+            if description:
+                msg += "Description:\n"
+                msg += description[:400] + "\n\n"
+
+            msg += "Open Assignment:\n"
+            msg += url
 
             send_whatsapp(msg)
 
             stored.append({
                 "id": assignment_id,
                 "title": title,
-                "due": due.isoformat() if due else None,
+                "due": due_date.isoformat() if due_date else None,
                 "reminders": []
             })
 
-    save_data(data)
+        save_data(data)
+
+        browser.close()
 
 
 def check_reminders():
@@ -256,7 +222,6 @@ def check_reminders():
 
 
 print("LMS bot started")
-
 
 while True:
 
