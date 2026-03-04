@@ -91,47 +91,59 @@ def get_assignment_details(session, url):
 
     soup = BeautifulSoup(page.text, "html.parser")
 
-    # TITLE
-    title = "Assignment"
-    title_tag = soup.find("h2")
-    if title_tag:
-        title = title_tag.get_text(strip=True)
+    region = soup.find("div", {"id": "region-main"})
 
-    # COURSE NAME
+    if not region:
+        return "Course", "Assignment", "", None
+
+    # -------- TITLE --------
+    title = "Assignment"
+    h = region.find("h2")
+
+    if h:
+        title = h.get_text(strip=True)
+
+    # -------- DESCRIPTION --------
+    description = ""
+
+    intro = region.find("div", {"class": "no-overflow"})
+
+    if intro:
+        description = intro.get_text(" ", strip=True)
+
+    # -------- COURSE NAME --------
     course = "Course"
+
     breadcrumb = soup.select("ul.breadcrumb li")
 
     if len(breadcrumb) >= 3:
         course = breadcrumb[2].get_text(strip=True)
 
-    # DESCRIPTION
-    description = ""
-
-    intro = soup.find("div", {"class": "no-overflow"})
-    if intro:
-        description = intro.get_text(" ", strip=True)
-
-    # DUE DATE
+    # -------- DUE DATE --------
     due_date = None
 
-    for row in soup.find_all("tr"):
+    rows = region.find_all("tr")
 
-        th = row.find("th")
-        td = row.find("td")
+    for r in rows:
+
+        th = r.find("th")
+        td = r.find("td")
 
         if th and td and "Due date" in th.text:
 
             due_text = td.get_text(strip=True)
 
-            due_date = parse_due_date(due_text)
+            try:
+                due_date = datetime.strptime(
+                    due_text, "%A, %d %B %Y, %I:%M %p")
+            except:
+                due_date = None
 
     print("Course:", course)
     print("Title:", title)
     print("Due:", due_date)
-    print("Description length:", len(description))
 
     return course, title, description, due_date
-
 
 def format_message(course, title, desc, due, days, url):
 
