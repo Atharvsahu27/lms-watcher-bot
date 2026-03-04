@@ -1,5 +1,6 @@
 import os
 import json
+import time
 from datetime import datetime
 from playwright.sync_api import sync_playwright
 from twilio.rest import Client
@@ -15,7 +16,7 @@ TWILIO_SID = os.getenv("TWILIO_SID")
 TWILIO_TOKEN = os.getenv("TWILIO_TOKEN")
 MY_PHONE = os.getenv("MY_PHONE")
 
-DATA_FILE = "seen.json"
+DATA_FILE = "assignments.json"
 
 
 def send_whatsapp(msg):
@@ -29,113 +30,57 @@ def send_whatsapp(msg):
     )
 
 
-def load_seen():
+def load_data():
 
     try:
-        with open(DATA_FILE) as f:
+        with open(DATA_FILE, encoding="utf-8") as f:
             return json.load(f)
     except:
-        return {"seen": []}
+        return {"assignments": []}
 
 
-def save_seen(data):
+def save_data(data):
 
-    with open(DATA_FILE, "w") as f:
+    with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f)
 
 
-def get_due_date(page):
+def days_remaining(due):
 
-    try:
-
-        due_div = page.locator(".description-inner div:has-text('Due')")
-
-        if due_div.count() > 0:
-
-            due_text = due_div.first.inner_text()
-
-            date_str = due_text.replace("Due:", "").strip()
-
-            return datetime.strptime(
-                date_str,
-                "%A, %d %B %Y, %I:%M %p"
-            )
-
-    except:
+    if not due:
         return None
 
+    delta = due - datetime.now()
 
-def get_description(page):
-
-    try:
-
-        desc = page.locator(".activity-description")
-
-        if desc.count() > 0:
-
-            return desc.first.inner_text().strip()
-
-    except:
-        return ""
-
-    return ""
+    return max(delta.days, 0)
 
 
-def scan_courses(page, seen):
+def check_assignments():
 
-    activities = []
+    data = load_data()
 
-    course_links = page.locator('a[href*="/course/view.php"]').all()
-
-    for c in course_links:
-
-        url = c.get_attribute("href")
-
-        if not url:
-            continue
-
-        print("Opening course:", url)
-
-        page.goto(url)
-
-        page.wait_for_load_state("networkidle")
-
-        acts = page.locator('a[href*="mod/"]').all()
-
-        for a in acts:
-
-            link = a.get_attribute("href")
-
-            title = a.inner_text()
-
-            if not link or not title:
-                continue
-
-            if link in seen:
-                continue
-
-            activities.append((title, link))
-
-    return activities
-
-
-def check_lms():
-
-    data = load_seen()
-    seen = data["seen"]
+    stored = data["assignments"]
 
     with sync_playwright() as p:
 
         browser = p.chromium.launch(
             headless=True,
-            args=["--no-sandbox", "--disable-dev-shm-usage"]
+            args=[
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-blink-features=AutomationControlled"
+            ]
         )
 
-        page = browser.new_page()
+        context = browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36"
+        )
 
-        print("Logging into LMS")
+        page = context.new_page()
 
-        page.goto(LOGIN_URL)
+        print("Opening LMS login")
+
+        page.goto(LOGIN_URL, timeout=60000)
 
         page.fill('input[name="username"]', USERNAME)
         page.fill('input[name="password"]', PASSWORD)
@@ -144,76 +89,177 @@ def check_lms():
 
         page.wait_for_selector("#page")
 
+        print("Opening dashboard")
+
         page.goto(DASHBOARD_URL)
 
         page.wait_for_selector("#page")
 
-        activities = scan_courses(page, seen)
+        links = page.locator('a[href*="mod/assign/view.php"]').all()
 
-        print("New activities:", len(activities))
+        assignment_links = set()
 
-        for title, url in activities:
+        for l in links:
 
-            print("Opening:", url)
+            href = l.get_attribute("href")
+
+            if href:
+                assignment_links.add(href)
+
+        print("Assignments found:", len(assignment_links))
+
+        for url in assignment_links:
+
+            assignment_id = url.split("id=")[-1]
+
+            if any(a["id"] == assignment_id for a in stored):
+                continue
+
+            print("Opening assignment:", url)
 
             page.goto(url)
 
             page.wait_for_load_state("networkidle")
 
-            page_text = page.inner_text("body")
+            # TITLE
+            title = "Assignment"
 
-            # skip submitted assignments
-            if "Submission status" in page_text and "Submitted for grading" in page_text:
+            if page.locator("h1").count() > 0:
+                title = page.locator("h1").first.inner_text().strip()
 
-                seen.append(url)
-                continue
+            # COURSE
+            course = "Course"
 
-            activity_type = "Activity"
+            crumbs = page.locator(".breadcrumb li")
 
-            if "mod/assign" in url:
-                activity_type = "📚 Assignment"
+            if crumbs.count() > 1:
+                course = crumbs.nth(1).inner_text().strip()
 
-            elif "mod/quiz" in url:
-                activity_type = "📝 Quiz"
+            # DESCRIPTION
+            description = ""
 
-            elif "mod/forum" in url:
-                activity_type = "📢 Announcement"
+            desc = page.locator(".activity-description")
 
-            elif "mod/resource" in url:
-                activity_type = "📂 New File"
+            if desc.count() > 0:
+                description = desc.first.inner_text().strip()
 
-            due = get_due_date(page)
+            # DUE DATE
+            due_date = None
 
-            desc = get_description(page)
+            try:
 
-            msg = f"{activity_type}\n\n"
+                due_div = page.locator(".description-inner div:has-text('Due')")
 
+                if due_div.count() > 0:
+
+                    due_text = due_div.first.inner_text()
+
+                    date_str = due_text.replace("Due:", "").strip()
+
+                    due_date = datetime.strptime(
+                        date_str,
+                        "%A, %d %B %Y, %I:%M %p"
+                    )
+
+            except Exception as e:
+
+                print("Due date parse error:", e)
+
+            days = days_remaining(due_date)
+
+            # MESSAGE
+            msg = "📚 NEW ASSIGNMENT\n\n"
+
+            msg += f"Course: {course}\n"
             msg += f"Title: {title}\n"
 
-            if due:
-                msg += f"Due: {due.strftime('%d %B %Y')}\n"
+            if due_date:
+                msg += f"Due: {due_date.strftime('%d %B %Y')}\n"
 
-            if desc:
-                msg += "\nDescription:\n"
-                msg += desc[:400] + "\n"
+            if days is not None:
+                msg += f"Days Remaining: {days}\n"
 
-            msg += "\nOpen:\n"
+            msg += "\n"
+
+            if description:
+                msg += "Description:\n"
+                msg += description[:300] + "\n\n"
+
+            msg += "Open Assignment:\n"
             msg += url
 
             send_whatsapp(msg)
 
-            seen.append(url)
+            time.sleep(2)
 
-        save_seen(data)
+            stored.append({
+                "id": assignment_id,
+                "title": title,
+                "due": due_date.isoformat() if due_date else None,
+                "reminders": []
+            })
+
+        save_data(data)
 
         browser.close()
 
 
-if __name__ == "__main__":
+def check_reminders():
 
-    print("Running LMS scan")
+    data = load_data()
+
+    for a in data["assignments"]:
+
+        if not a["due"]:
+            continue
+
+        due = datetime.fromisoformat(a["due"])
+
+        days = days_remaining(due)
+
+        if days is None or days < 0:
+            continue
+
+        if days == 7 and "7" not in a["reminders"]:
+
+            send_whatsapp(f"⚠️ Reminder\n\n{a['title']} due in 7 days")
+
+            a["reminders"].append("7")
+
+        if days == 3 and "3" not in a["reminders"]:
+
+            send_whatsapp(f"⚠️ Reminder\n\n{a['title']} due in 3 days")
+
+            a["reminders"].append("3")
+
+        if days == 1 and "1" not in a["reminders"]:
+
+            send_whatsapp(f"🚨 Deadline Tomorrow\n\n{a['title']} due tomorrow")
+
+            a["reminders"].append("1")
+
+        time.sleep(2)
+
+    save_data(data)
+
+
+print("LMS bot started")
+
+
+while True:
 
     try:
-        check_lms()
+
+        check_assignments()
+
+        check_reminders()
+
+        print("Sleeping 10 minutes")
+
+        time.sleep(180)
+
     except Exception as e:
+
         print("Error:", e)
+
+        time.sleep(60)
