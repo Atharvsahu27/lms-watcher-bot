@@ -3,6 +3,8 @@ from bs4 import BeautifulSoup
 import time
 import json
 import os
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 LOGIN_URL = "https://lms.vit.ac.in/login/index.php"
 DASHBOARD_URL = "https://lms.vit.ac.in/my/"
@@ -33,9 +35,9 @@ def check_assignments():
         "password": PASSWORD
     }
 
-    session.post(LOGIN_URL, data=payload)
+    session.post(LOGIN_URL, data=payload, verify=False)
 
-    dashboard = session.get(DASHBOARD_URL)
+    dashboard = session.get(DASHBOARD_URL, verify=False)
 
     soup = BeautifulSoup(dashboard.text, "html.parser")
 
