@@ -4,8 +4,9 @@ import time
 import json
 import os
 import urllib3
+from twilio.rest import Client
 
-# Disable SSL warnings (needed for Railway container)
+# disable SSL warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 LOGIN_URL = "https://lms.vit.ac.in/login/index.php"
@@ -14,7 +15,22 @@ DASHBOARD_URL = "https://lms.vit.ac.in/my/"
 USERNAME = os.getenv("LMS_USER")
 PASSWORD = os.getenv("LMS_PASS")
 
+TWILIO_SID = os.getenv("TWILIO_SID")
+TWILIO_TOKEN = os.getenv("TWILIO_TOKEN")
+MY_PHONE = os.getenv("MY_PHONE")
+
 SEEN_FILE = "seen_assignments.json"
+
+
+def send_whatsapp(msg):
+
+    client = Client(TWILIO_SID, TWILIO_TOKEN)
+
+    client.messages.create(
+        body=msg,
+        from_='whatsapp:+14155238886',
+        to=MY_PHONE
+    )
 
 
 def load_seen():
@@ -46,13 +62,13 @@ def login(session):
 
     logintoken = token_input["value"]
 
-    print("Submitting login form...")
-
     payload = {
         "username": USERNAME,
         "password": PASSWORD,
         "logintoken": logintoken
     }
+
+    print("Submitting login form...")
 
     session.post(LOGIN_URL, data=payload, verify=False)
 
@@ -65,7 +81,7 @@ def login(session):
 
 def check_assignments():
 
-    print("Starting assignment check...")
+    print("Checking LMS assignments...")
 
     session = requests.Session()
 
@@ -90,12 +106,18 @@ def check_assignments():
 
     for a in assignments:
         if a not in seen:
-            print("NEW ASSIGNMENT DETECTED:", a)
+
+            msg = f"New LMS Assignment: {a}"
+
+            print(msg)
+
+            send_whatsapp(msg)
 
     save_seen(assignments)
 
 
 print("LMS watcher started...")
+
 
 while True:
 
