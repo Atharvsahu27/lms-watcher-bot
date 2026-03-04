@@ -5,7 +5,6 @@ from datetime import datetime
 from playwright.sync_api import sync_playwright
 from twilio.rest import Client
 
-
 LOGIN_URL = "https://lms.vit.ac.in/login/index.php"
 DASHBOARD_URL = "https://lms.vit.ac.in/my/"
 
@@ -33,7 +32,7 @@ def send_whatsapp(msg):
 def load_data():
 
     try:
-        with open(DATA_FILE) as f:
+        with open(DATA_FILE, encoding="utf-8") as f:
             return json.load(f)
     except:
         return {"assignments": []}
@@ -41,16 +40,8 @@ def load_data():
 
 def save_data(data):
 
-    with open(DATA_FILE, "w") as f:
+    with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f)
-
-
-def parse_due_date(text):
-
-    try:
-        return datetime.strptime(text, "%d %B %Y")
-    except:
-        return None
 
 
 def days_remaining(due):
@@ -64,43 +55,52 @@ def days_remaining(due):
 def check_assignments():
 
     data = load_data()
-
     stored = data["assignments"]
 
     with sync_playwright() as p:
 
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(
+            headless=True,
+            args=[
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-blink-features=AutomationControlled"
+            ]
+        )
 
-        page = browser.new_page()
+        context = browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36"
+        )
 
-        print("Opening LMS login")
+        page = context.new_page()
 
-        page.goto(LOGIN_URL)
+        print(f"[{datetime.now()}] Opening LMS login")
+
+        page.goto(LOGIN_URL, timeout=60000)
 
         page.fill('input[name="username"]', USERNAME)
         page.fill('input[name="password"]', PASSWORD)
 
         page.click('button[type="submit"]')
 
-        page.wait_for_load_state("networkidle")
+        page.wait_for_selector("#page")
 
         print("Opening dashboard")
 
         page.goto(DASHBOARD_URL)
 
-        page.wait_for_load_state("networkidle")
+        page.wait_for_selector("#page")
 
-        links = page.locator("a").all()
+        links = page.locator('a[href*="mod/assign/view.php"]').all()
 
-        assignment_links = []
+        assignment_links = set()
 
         for l in links:
 
             href = l.get_attribute("href")
 
-            if href and "mod/assign/view.php" in href:
-
-                assignment_links.append(href)
+            if href:
+                assignment_links.add(href)
 
         print("Assignments found:", len(assignment_links))
 
@@ -147,7 +147,10 @@ def check_assignments():
                     if len(parts) > 1:
 
                         try:
-                            due_date = datetime.strptime(parts[1], "%A, %d %B %Y, %I:%M %p")
+                            due_date = datetime.strptime(
+                                parts[1],
+                                "%A, %d %B %Y, %I:%M %p"
+                            )
                         except:
                             pass
 
@@ -175,6 +178,8 @@ def check_assignments():
 
             send_whatsapp(msg)
 
+            time.sleep(2)
+
             stored.append({
                 "id": assignment_id,
                 "title": title,
@@ -200,6 +205,9 @@ def check_reminders():
 
         days = days_remaining(due)
 
+        if days is None or days < 0:
+            continue
+
         if days == 7 and "7" not in a["reminders"]:
 
             send_whatsapp(f"⚠️ Reminder\n\n{a['title']} due in 7 days")
@@ -218,10 +226,13 @@ def check_reminders():
 
             a["reminders"].append("1")
 
+        time.sleep(2)
+
     save_data(data)
 
 
 print("LMS bot started")
+
 
 while True:
 
