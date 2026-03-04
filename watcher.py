@@ -22,20 +22,18 @@ MY_PHONE = os.getenv("MY_PHONE")
 DATA_FILE = "assignments.json"
 
 
-def send_whatsapp(msg, media=None):
+def send_whatsapp(msg):
 
     client = Client(TWILIO_SID, TWILIO_TOKEN)
 
     client.messages.create(
         body=msg,
-        media_url=[media] if media else None,
         from_='whatsapp:+14155238886',
         to=MY_PHONE
     )
 
 
 def load_data():
-
     try:
         with open(DATA_FILE) as f:
             return json.load(f)
@@ -44,7 +42,6 @@ def load_data():
 
 
 def save_data(data):
-
     with open(DATA_FILE, "w") as f:
         json.dump(data, f)
 
@@ -96,13 +93,11 @@ def get_assignment_details(session, url):
 
     soup = BeautifulSoup(page.text, "html.parser")
 
-    title = soup.find("h2").text.strip()
+    title_tag = soup.find("h2")
+    title = title_tag.text.strip() if title_tag else "Assignment"
 
-    description = ""
-
-    desc = soup.find("div", {"class": "no-overflow"})
-    if desc:
-        description = desc.text.strip()
+    desc_block = soup.find("div", {"class": "no-overflow"})
+    description = desc_block.get_text(" ", strip=True) if desc_block else ""
 
     attachments = []
 
@@ -127,25 +122,35 @@ def get_assignment_details(session, url):
 
 def format_message(course, title, desc, attachments, due, days, url):
 
-    msg = f"""
-📚 NEW ASSIGNMENT
+    msg = "📚 NEW ASSIGNMENT\n\n"
 
-Course: {course}
-Title: {title}
+    msg += f"Course: {course}\n"
+    msg += f"Title: {title}\n"
 
-Due: {due}
-Days Remaining: {days}
+    if due:
+        msg += f"Due: {due.strftime('%d %B %Y')}\n"
 
-Description:
-{desc[:300]}
+    if days is not None:
+        msg += f"Days Remaining: {days}\n"
 
-Attachments:
-"""
+    msg += "\n"
 
-    for a in attachments:
-        msg += f"\n{a}"
+    if desc:
+        msg += "Description:\n"
+        msg += desc[:500] + "\n\n"
 
-    msg += f"\n\nOpen Assignment:\n{url}"
+    if attachments:
+
+        msg += "Attachment:\n"
+
+        for a in attachments:
+            name = a.split("/")[-1]
+            msg += f"{name}\n"
+
+        msg += "\n"
+
+    msg += "Open Assignment:\n"
+    msg += url
 
     return msg
 
@@ -176,22 +181,20 @@ def check_assignments():
 
         if not any(a["id"] == assignment_id for a in stored):
 
-            print("New assignment found:", url)
+            print("New assignment detected")
 
             title, desc, attachments, due = get_assignment_details(session, url)
 
             days = days_remaining(due)
 
-            course = "Course"
-
-            msg = format_message(course, title, desc, attachments, due, days, url)
+            msg = format_message("Course", title, desc, attachments, due, days, url)
 
             send_whatsapp(msg)
 
             stored.append({
                 "id": assignment_id,
                 "title": title,
-                "due": str(due),
+                "due": due.isoformat() if due else None,
                 "reminders": []
             })
 
@@ -213,19 +216,19 @@ def check_reminders():
 
         if days == 7 and "7" not in a["reminders"]:
 
-            send_whatsapp(f"Reminder: {a['title']} due in 7 days")
+            send_whatsapp(f"⚠️ Reminder\n\n{a['title']} due in 7 days")
 
             a["reminders"].append("7")
 
         if days == 3 and "3" not in a["reminders"]:
 
-            send_whatsapp(f"Reminder: {a['title']} due in 3 days")
+            send_whatsapp(f"⚠️ Reminder\n\n{a['title']} due in 3 days")
 
             a["reminders"].append("3")
 
         if days == 1 and "1" not in a["reminders"]:
 
-            send_whatsapp(f"Reminder: {a['title']} due tomorrow")
+            send_whatsapp(f"🚨 Deadline Tomorrow\n\n{a['title']} due tomorrow")
 
             a["reminders"].append("1")
 
@@ -233,6 +236,7 @@ def check_reminders():
 
 
 print("LMS bot started")
+
 
 while True:
 
