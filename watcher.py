@@ -23,7 +23,6 @@ DATA_FILE = "assignments.json"
 
 
 def send_whatsapp(msg):
-
     client = Client(TWILIO_SID, TWILIO_TOKEN)
 
     client.messages.create(
@@ -47,17 +46,17 @@ def save_data(data):
 
 
 def login(session):
-
     login_page = session.get(LOGIN_URL, verify=False)
 
     soup = BeautifulSoup(login_page.text, "html.parser")
 
-    token = soup.find("input", {"name": "logintoken"})["value"]
+    token_input = soup.find("input", {"name": "logintoken"})
+    logintoken = token_input["value"]
 
     payload = {
         "username": USERNAME,
         "password": PASSWORD,
-        "logintoken": token
+        "logintoken": logintoken
     }
 
     session.post(LOGIN_URL, data=payload, verify=False)
@@ -70,7 +69,6 @@ def login(session):
 
 
 def parse_due_date(text):
-
     try:
         return datetime.strptime(text, "%A, %d %B %Y, %I:%M %p")
     except:
@@ -78,12 +76,10 @@ def parse_due_date(text):
 
 
 def days_remaining(due):
-
     if not due:
         return None
 
     delta = due - datetime.now()
-
     return delta.days
 
 
@@ -93,34 +89,50 @@ def get_assignment_details(session, url):
 
     soup = BeautifulSoup(page.text, "html.parser")
 
-    title_tag = soup.find("h2")
-    title = title_tag.text.strip() if title_tag else "Assignment"
+    # ---------- TITLE ----------
+    title = "Assignment"
+    h = soup.find("h2")
+    if h:
+        title = h.get_text(strip=True)
+
+    # ---------- COURSE ----------
+    course = "Course"
+    breadcrumb = soup.select("nav li")
+
+    if len(breadcrumb) >= 3:
+        course = breadcrumb[2].get_text(strip=True)
+
+    # ---------- DESCRIPTION ----------
+    description = ""
 
     desc_block = soup.find("div", {"class": "no-overflow"})
-    description = desc_block.get_text(" ", strip=True) if desc_block else ""
+    if desc_block:
+        description = desc_block.get_text(" ", strip=True)
 
-    attachments = []
-
-    for link in soup.find_all("a", href=True):
-
-        if any(ext in link["href"] for ext in [".pdf", ".doc", ".docx"]):
-
-            attachments.append(link["href"])
-
+    # ---------- DUE DATE ----------
     due_date = None
 
-    for row in soup.find_all("td"):
+    rows = soup.find_all("tr")
 
-        if "Due date" in row.text:
+    for r in rows:
 
-            due_text = row.find_next("td").text.strip()
+        th = r.find("th")
+        td = r.find("td")
 
-            due_date = parse_due_date(due_text)
+        if th and td and "Due date" in th.text:
 
-    return title, description, attachments, due_date
+            due_text = td.get_text(strip=True)
+
+            try:
+                due_date = datetime.strptime(
+                    due_text, "%A, %d %B %Y, %I:%M %p")
+            except:
+                due_date = None
+
+    return course, title, description, due_date
 
 
-def format_message(course, title, desc, attachments, due, days, url):
+def format_message(course, title, desc, due, days, url):
 
     msg = "📚 NEW ASSIGNMENT\n\n"
 
@@ -139,16 +151,6 @@ def format_message(course, title, desc, attachments, due, days, url):
         msg += "Description:\n"
         msg += desc[:500] + "\n\n"
 
-    if attachments:
-
-        msg += "Attachment:\n"
-
-        for a in attachments:
-            name = a.split("/")[-1]
-            msg += f"{name}\n"
-
-        msg += "\n"
-
     msg += "Open Assignment:\n"
     msg += url
 
@@ -164,16 +166,16 @@ def check_assignments():
     soup = BeautifulSoup(dashboard.text, "html.parser")
 
     data = load_data()
-
     stored = data["assignments"]
 
     links = []
 
     for link in soup.find_all("a", href=True):
 
-        if "mod/assign/view.php" in link["href"]:
-
+        if "mod/assign/view.php" in link["href"] and "id=" in link["href"]:
             links.append(link["href"])
+
+    print("Assignments found:", len(links))
 
     for url in links:
 
@@ -181,13 +183,13 @@ def check_assignments():
 
         if not any(a["id"] == assignment_id for a in stored):
 
-            print("New assignment detected")
+            print("Opening assignment page:", url)
 
-            title, desc, attachments, due = get_assignment_details(session, url)
+            course, title, desc, due = get_assignment_details(session, url)
 
             days = days_remaining(due)
 
-            msg = format_message("Course", title, desc, attachments, due, days, url)
+            msg = format_message(course, title, desc, due, days, url)
 
             send_whatsapp(msg)
 
@@ -215,21 +217,15 @@ def check_reminders():
         days = days_remaining(due)
 
         if days == 7 and "7" not in a["reminders"]:
-
             send_whatsapp(f"⚠️ Reminder\n\n{a['title']} due in 7 days")
-
             a["reminders"].append("7")
 
         if days == 3 and "3" not in a["reminders"]:
-
             send_whatsapp(f"⚠️ Reminder\n\n{a['title']} due in 3 days")
-
             a["reminders"].append("3")
 
         if days == 1 and "1" not in a["reminders"]:
-
             send_whatsapp(f"🚨 Deadline Tomorrow\n\n{a['title']} due tomorrow")
-
             a["reminders"].append("1")
 
     save_data(data)
