@@ -256,7 +256,7 @@ while True:
 
         print("Sleeping 10 minutes")
 
-        time.sleep(180)
+        time.sleep(600)
 
     except Exception as e:
 
