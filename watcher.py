@@ -49,7 +49,9 @@ def days_remaining(due):
     if not due:
         return None
 
-    return (due - datetime.now()).days
+    delta = due - datetime.now()
+
+    return max(delta.days, 0)
 
 
 def check_assignments():
@@ -74,7 +76,7 @@ def check_assignments():
 
         page = context.new_page()
 
-        print(f"[{datetime.now()}] Opening LMS login")
+        print("Opening LMS login")
 
         page.goto(LOGIN_URL, timeout=60000)
 
@@ -117,47 +119,60 @@ def check_assignments():
 
             page.wait_for_load_state("networkidle")
 
+            # TITLE
             title = "Assignment"
 
             if page.locator("h1").count() > 0:
-                title = page.locator("h1").first.inner_text()
+                title = page.locator("h1").first.inner_text().strip()
 
-            description = ""
-
-            if page.locator(".intro").count() > 0:
-                description = page.locator(".intro").first.inner_text()
-
+            # COURSE
             course = "Course"
 
             crumbs = page.locator(".breadcrumb li")
+
             if crumbs.count() > 1:
-             course = crumbs.nth(1).inner_text()
+                course = crumbs.nth(1).inner_text().strip()
 
+            # DESCRIPTION
+            description = ""
 
+            desc = page.locator(".activity-description")
+
+            if desc.count() > 0:
+                description = desc.first.inner_text().strip()
+
+            # DUE DATE
             due_date = None
 
-            due_locator = page.locator("text=Due date")
+            date_block = page.locator(".description-inner")
 
-            if due_locator.count() > 0:
+            if date_block.count() > 0:
 
-                row = due_locator.first.locator("xpath=..")
+                text = date_block.first.inner_text()
 
-                text = row.inner_text()
+                if "Due date" in text:
 
-                parts = text.split("\n")
+                    lines = text.split("\n")
 
-                if len(parts) > 1:
+                    for i in range(len(lines)):
 
-                        try:
-                            due_date = datetime.strptime(
-                                parts[1],
-                                "%A, %d %B %Y, %I:%M %p"
-                            )
-                        except:
-                            pass
+                        if "Due date" in lines[i]:
+
+                            if i + 1 < len(lines):
+
+                                date_str = lines[i+1].strip()
+
+                                try:
+                                    due_date = datetime.strptime(
+                                        date_str,
+                                        "%A, %d %B %Y, %I:%M %p"
+                                    )
+                                except:
+                                    pass
 
             days = days_remaining(due_date)
 
+            # MESSAGE
             msg = "📚 NEW ASSIGNMENT\n\n"
 
             msg += f"Course: {course}\n"
@@ -173,7 +188,7 @@ def check_assignments():
 
             if description:
                 msg += "Description:\n"
-                msg += description[:400] + "\n\n"
+                msg += description[:300] + "\n\n"
 
             msg += "Open Assignment:\n"
             msg += url
