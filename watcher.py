@@ -91,27 +91,29 @@ def get_assignment_details(session, url):
 
     soup = BeautifulSoup(page.text, "html.parser")
 
-    region = soup.find("div", {"id": "region-main"})
+    main = soup.find("div", {"role": "main"})
 
-    if not region:
+    if not main:
+        print("Main content not found")
         return "Course", "Assignment", "", None
 
-    # -------- TITLE --------
+    # TITLE
     title = "Assignment"
-    h = region.find("h2")
 
-    if h:
-        title = h.get_text(strip=True)
+    h2 = main.find("h2")
 
-    # -------- DESCRIPTION --------
+    if h2:
+        title = h2.get_text(strip=True)
+
+    # DESCRIPTION
     description = ""
 
-    intro = region.find("div", {"class": "no-overflow"})
+    intro = main.find("div", class_="no-overflow")
 
     if intro:
         description = intro.get_text(" ", strip=True)
 
-    # -------- COURSE NAME --------
+    # COURSE NAME
     course = "Course"
 
     breadcrumb = soup.select("ul.breadcrumb li")
@@ -119,10 +121,10 @@ def get_assignment_details(session, url):
     if len(breadcrumb) >= 3:
         course = breadcrumb[2].get_text(strip=True)
 
-    # -------- DUE DATE --------
+    # DUE DATE
     due_date = None
 
-    rows = region.find_all("tr")
+    rows = main.find_all("tr")
 
     for r in rows:
 
@@ -135,13 +137,15 @@ def get_assignment_details(session, url):
 
             try:
                 due_date = datetime.strptime(
-                    due_text, "%A, %d %B %Y, %I:%M %p")
+                    due_text, "%A, %d %B %Y, %I:%M %p"
+                )
             except:
                 due_date = None
 
     print("Course:", course)
     print("Title:", title)
     print("Due:", due_date)
+    print("Description length:", len(description))
 
     return course, title, description, due_date
 
