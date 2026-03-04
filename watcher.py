@@ -12,7 +12,7 @@ DASHBOARD_URL = "https://lms.vit.ac.in/my/"
 USERNAME = os.getenv("LMS_USER")
 PASSWORD = os.getenv("LMS_PASS")
 
-
+print("Starting LMS watcher...")
 def load_seen():
     try:
         with open("seen_assignments.json") as f:
@@ -58,7 +58,7 @@ def check_assignments():
 
 
 while True:
-
+    print("Checking LMS for assignments...")
     check_assignments()
 
     time.sleep(600)
