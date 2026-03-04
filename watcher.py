@@ -7,8 +7,8 @@ import os
 LOGIN_URL = "https://lms.vit.ac.in/login/index.php"
 DASHBOARD_URL = "https://lms.vit.ac.in/my/"
 
-USERNAME = os.getenv("23MIA1153")
-PASSWORD = os.getenv("Always@123")
+USERNAME = os.getenv("LMS_USER")
+PASSWORD = os.getenv("LMS_PASS")
 
 
 def load_seen():
