@@ -119,32 +119,34 @@ def check_assignments():
 
             title = "Assignment"
 
-            if page.locator("h2").count() > 0:
-                title = page.locator("h2").first.inner_text()
+            if page.locator("h1").count() > 0:
+                title = page.locator("h1").first.inner_text()
 
             description = ""
 
-            if page.locator(".no-overflow").count() > 0:
-                description = page.locator(".no-overflow").first.inner_text()
+            if page.locator(".intro").count() > 0:
+                description = page.locator(".intro").first.inner_text()
 
             course = "Course"
 
-            if page.locator(".breadcrumb li").count() >= 3:
-                course = page.locator(".breadcrumb li").nth(2).inner_text()
+            crumbs = page.locator(".breadcrumb li")
+            if crumbs.count() > 1:
+             course = crumbs.nth(1).inner_text()
+
 
             due_date = None
 
-            rows = page.locator("tr")
+            due_locator = page.locator("text=Due date")
 
-            for i in range(rows.count()):
+            if due_locator.count() > 0:
 
-                text = rows.nth(i).inner_text()
+                row = due_locator.first.locator("xpath=..")
 
-                if "Due date" in text:
+                text = row.inner_text()
 
-                    parts = text.split("\n")
+                parts = text.split("\n")
 
-                    if len(parts) > 1:
+                if len(parts) > 1:
 
                         try:
                             due_date = datetime.strptime(
