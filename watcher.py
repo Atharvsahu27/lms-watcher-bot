@@ -23,6 +23,7 @@ DATA_FILE = "assignments.json"
 
 
 def send_whatsapp(msg):
+
     client = Client(TWILIO_SID, TWILIO_TOKEN)
 
     client.messages.create(
@@ -46,17 +47,17 @@ def save_data(data):
 
 
 def login(session):
+
     login_page = session.get(LOGIN_URL, verify=False)
 
     soup = BeautifulSoup(login_page.text, "html.parser")
 
-    token_input = soup.find("input", {"name": "logintoken"})
-    logintoken = token_input["value"]
+    token = soup.find("input", {"name": "logintoken"})["value"]
 
     payload = {
         "username": USERNAME,
         "password": PASSWORD,
-        "logintoken": logintoken
+        "logintoken": token
     }
 
     session.post(LOGIN_URL, data=payload, verify=False)
@@ -69,6 +70,7 @@ def login(session):
 
 
 def parse_due_date(text):
+
     try:
         return datetime.strptime(text, "%A, %d %B %Y, %I:%M %p")
     except:
@@ -76,11 +78,11 @@ def parse_due_date(text):
 
 
 def days_remaining(due):
+
     if not due:
         return None
 
-    delta = due - datetime.now()
-    return delta.days
+    return (due - datetime.now()).days
 
 
 def get_assignment_details(session, url):
@@ -89,45 +91,44 @@ def get_assignment_details(session, url):
 
     soup = BeautifulSoup(page.text, "html.parser")
 
-    # ---------- TITLE ----------
+    # TITLE
     title = "Assignment"
-    h = soup.find("h2")
-    if h:
-        title = h.get_text(strip=True)
+    title_tag = soup.find("h2")
+    if title_tag:
+        title = title_tag.get_text(strip=True)
 
-    # ---------- COURSE ----------
+    # COURSE NAME
     course = "Course"
-    breadcrumb = soup.select("nav li")
+    breadcrumb = soup.select("ul.breadcrumb li")
 
     if len(breadcrumb) >= 3:
         course = breadcrumb[2].get_text(strip=True)
 
-    # ---------- DESCRIPTION ----------
+    # DESCRIPTION
     description = ""
 
-    desc_block = soup.find("div", {"class": "no-overflow"})
-    if desc_block:
-        description = desc_block.get_text(" ", strip=True)
+    intro = soup.find("div", {"class": "no-overflow"})
+    if intro:
+        description = intro.get_text(" ", strip=True)
 
-    # ---------- DUE DATE ----------
+    # DUE DATE
     due_date = None
 
-    rows = soup.find_all("tr")
+    for row in soup.find_all("tr"):
 
-    for r in rows:
-
-        th = r.find("th")
-        td = r.find("td")
+        th = row.find("th")
+        td = row.find("td")
 
         if th and td and "Due date" in th.text:
 
             due_text = td.get_text(strip=True)
 
-            try:
-                due_date = datetime.strptime(
-                    due_text, "%A, %d %B %Y, %I:%M %p")
-            except:
-                due_date = None
+            due_date = parse_due_date(due_text)
+
+    print("Course:", course)
+    print("Title:", title)
+    print("Due:", due_date)
+    print("Description length:", len(description))
 
     return course, title, description, due_date
 
@@ -149,7 +150,7 @@ def format_message(course, title, desc, due, days, url):
 
     if desc:
         msg += "Description:\n"
-        msg += desc[:500] + "\n\n"
+        msg += desc[:400] + "\n\n"
 
     msg += "Open Assignment:\n"
     msg += url
@@ -166,6 +167,7 @@ def check_assignments():
     soup = BeautifulSoup(dashboard.text, "html.parser")
 
     data = load_data()
+
     stored = data["assignments"]
 
     links = []
@@ -217,15 +219,21 @@ def check_reminders():
         days = days_remaining(due)
 
         if days == 7 and "7" not in a["reminders"]:
+
             send_whatsapp(f"⚠️ Reminder\n\n{a['title']} due in 7 days")
+
             a["reminders"].append("7")
 
         if days == 3 and "3" not in a["reminders"]:
+
             send_whatsapp(f"⚠️ Reminder\n\n{a['title']} due in 3 days")
+
             a["reminders"].append("3")
 
         if days == 1 and "1" not in a["reminders"]:
+
             send_whatsapp(f"🚨 Deadline Tomorrow\n\n{a['title']} due tomorrow")
+
             a["reminders"].append("1")
 
     save_data(data)
