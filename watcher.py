@@ -40,6 +40,7 @@ def check_assignments():
     dashboard = session.get(DASHBOARD_URL, verify=False)
 
     soup = BeautifulSoup(dashboard.text, "html.parser")
+    print("Dashboard URL:", dashboard.url)
 
     assignments = []
 
@@ -58,7 +59,13 @@ def check_assignments():
 
 
 while True:
-    print("Checking LMS for assignments...")
-    check_assignments()
+    try:
+        print("Checking LMS for assignments...")
+        check_assignments()
 
-    time.sleep(600)
+        print("Sleeping for 10 minutes...\n")
+        time.sleep(600)
+
+    except Exception as e:
+        print("Error occurred:", e)
+        time.sleep(60)
