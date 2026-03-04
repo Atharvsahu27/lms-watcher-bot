@@ -1,5 +1,8 @@
 {
   "deploy": {
     "startCommand": "playwright install chromium && playwright install-deps chromium && python watcher.py"
+  },
+  "cron": {
+    "schedule": "*/5 * * * *"
   }
 }
